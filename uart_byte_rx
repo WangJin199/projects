@@ -1,1 +1,101 @@
+module uart_byte_rx(
+    input clk,
+    input in,
+    input reset,    // Synchronous reset
+    input [3:0] Baud_set,
+    output [7:0] out_byte,
+    output done
+); //
 
+    // Use FSM from Fsm_serial
+	  reg [2:0] ns,cs;
+    parameter [2:0] IDLE =3'b000, START = 3'b001, RX = 3'b010, RX_DONE = 3'b011, STOP = 3'b100, ERROR = 3'b101;
+    reg [2:0] cnt_in; //对数据计数
+    
+    //第一个always块：cs时序逻辑
+    always @ (posedge clk)
+    begin
+        if (reset) cs <= IDLE;
+    	else cs <= ns;
+    end
+    
+    //第二个always块:ns组合逻辑
+    always @ (*)
+    begin
+        if (reset) ns = IDLE;
+        else begin
+            case (cs)
+                IDLE:begin
+                    if (!in) ns = START;
+                    else ns = IDLE;
+                end
+                START:begin
+                    ns = RX;
+                end
+                RX: begin
+                    if (cnt_in == 7) ns = RX_DONE;
+                    else ns = RX;
+                end
+                RX_DONE:begin
+                    if (in) ns = STOP;
+                    else ns = ERROR;
+                end
+                STOP:begin
+                    if(in) ns =IDLE;
+                    else ns = START;
+                end
+                ERROR:begin
+                    if (in) ns = IDLE;
+                    else  ns = ERROR;
+                end
+                default: ns = IDLE;
+            endcase
+        end
+    end
+    
+    //cnt_in计数器电路
+    always @ (posedge clk)
+    begin
+        if (reset) cnt_in <= 3'b0;
+        else begin
+            case(ns)
+                START:cnt_in <= 3'b0;
+                RX:cnt_in <= cnt_in + 1'b1;
+                default:cnt_in <= cnt_in;
+            endcase
+        end
+    end
+    
+    //第三个always模块：输出done
+    always @ (posedge clk)
+    begin
+        if (reset) done <= 0;
+        //else if (ns == STOP) done <= 1;
+        //else done <= 0;
+        else begin
+            case(ns) 
+                STOP: done <= 1;
+                default: done <= 0;
+            endcase
+        end
+    end  
+    
+    // New: Datapath to latch input bits.
+   //reg [7:0] out_r;
+    always @ (posedge clk) begin
+        if (reset) out_byte <= 8'b0;
+        //else if (ns == START) out_byte <= 8'b0;
+        else begin
+            case (ns)
+                START: out_byte <= 8'b0;
+                RX:begin
+                    out_byte[cnt_in] <= in;
+                    //out_r <= {in,out_r[7:1]};
+                end
+                RX_DONE: out_byte[cnt_in] <= in;
+                default:out_byte <= out_byte;
+            endcase
+        end
+    end
+    //assign out_byte = (done == 1) ? out_r : 8'bx;
+endmodule
